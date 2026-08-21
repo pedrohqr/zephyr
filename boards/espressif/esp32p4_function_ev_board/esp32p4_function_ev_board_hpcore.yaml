@@ -10,9 +10,12 @@ testing:
     - heap
 supported:
   - counter
+  - dma
   - entropy
   - gpio
   - hwinfo
+  - netif:eth
+  - netif:wifi
   - sdhc
   - spi
   - uart

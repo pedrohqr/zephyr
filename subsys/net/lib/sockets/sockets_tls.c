@@ -440,7 +440,7 @@ static void tls_session_cache_settings_clear(void)
 #endif /* CONFIG_NET_SOCKETS_TLS_SESSION_CACHE_PERSISTENT */
 
 /* A mutex for protecting TLS context allocation. */
-static struct k_mutex context_lock;
+static K_MUTEX_DEFINE(context_lock);
 
 /* Arbitrary delay value to wait if Mbed TLS reports it cannot proceed for
  * reasons other than TX/RX block.
@@ -555,8 +555,6 @@ static int tls_init(void)
 
 	(void)memset(tls_contexts, 0, sizeof(tls_contexts));
 	(void)memset(client_cache, 0, sizeof(client_cache));
-
-	k_mutex_init(&context_lock);
 
 #if defined(MBEDTLS_SSL_CACHE_C)
 	mbedtls_ssl_cache_init(&server_cache);
@@ -1161,7 +1159,7 @@ static int dtls_tx(void *ctx, const unsigned char *buf, size_t len)
 static int dtls_server_rx(void *ctx, unsigned char *buf, size_t len)
 {
 	struct tls_context *tls_ctx = ctx;
-	net_socklen_t addrlen = sizeof(struct net_sockaddr);
+	net_socklen_t addrlen = sizeof(struct net_sockaddr_storage);
 	struct net_sockaddr_storage addr = { 0 };
 	int err;
 	ssize_t received;
@@ -1217,7 +1215,7 @@ static int dtls_server_rx(void *ctx, unsigned char *buf, size_t len)
 static int dtls_client_rx(void *ctx, unsigned char *buf, size_t len)
 {
 	struct tls_context *tls_ctx = ctx;
-	net_socklen_t addrlen = sizeof(struct net_sockaddr);
+	net_socklen_t addrlen = sizeof(struct net_sockaddr_storage);
 	struct net_sockaddr_storage addr = { 0 };
 	ssize_t received;
 
@@ -1363,7 +1361,7 @@ static int dtls_server_switch_active_session_by_cid(struct tls_context *tls_ctx)
 		 * static buffer for the purpose, and protect it with a mutex to
 		 * avoid races in case multiple DTLS server sockets run in parallel.
 		 */
-		addrlen = sizeof(struct net_sockaddr);
+		addrlen = sizeof(struct net_sockaddr_storage);
 		len = zsock_recvfrom(tls_ctx->sock, &dtls_helper_buf, sizeof(dtls_helper_buf),
 				     ZSOCK_MSG_DONTWAIT | ZSOCK_MSG_PEEK,
 				     net_sad(&addr), &addrlen);
@@ -1401,7 +1399,7 @@ static int dtls_server_switch_active_session_by_cid(struct tls_context *tls_ctx)
  */
 static int dtls_server_switch_session_on_rx(struct tls_context *tls_ctx)
 {
-	net_socklen_t addrlen = sizeof(struct net_sockaddr);
+	net_socklen_t addrlen = sizeof(struct net_sockaddr_storage);
 	struct net_sockaddr_storage addr = { 0 };
 	uint8_t tmp_buf;
 	int ret;
@@ -4000,19 +3998,53 @@ ssize_t ztls_recvfrom_ctx(struct tls_context *ctx, void *buf, size_t max_len,
 #endif /* CONFIG_NET_SOCKETS_ENABLE_DTLS */
 }
 
+static int tls_data_check(struct tls_context *ctx);
+
 static int ztls_poll_prepare_pollin(struct tls_context *ctx)
 {
+	int ret;
+
+	if (ctx->is_listening) {
+		return 0;
+	}
+
 	/* If there already is Mbed TLS data to read, there is no
 	 * need to set the k_poll_event object. Return EALREADY
 	 * so we won't block in the k_poll.
 	 */
-	if (!ctx->is_listening) {
-		if (mbedtls_ssl_get_bytes_avail(&ctx->active_session->ssl) > 0) {
-			return -EALREADY;
-		}
+	if (mbedtls_ssl_get_bytes_avail(&ctx->active_session->ssl) > 0) {
+		return -EALREADY;
 	}
 
-	return 0;
+	if (!ctx->is_initialized) {
+		return 0;
+	}
+
+	/* Mbed TLS can hold a message that it already read from the underlying
+	 * socket but did not process yet, for example a further record of a
+	 * datagram that carried several. The socket has no readiness left to
+	 * report in that case, so waiting on it alone can sleep while data is
+	 * available. Advance such a message here instead.
+	 */
+	if (mbedtls_ssl_check_pending(&ctx->active_session->ssl) == 0) {
+		return 0;
+	}
+
+	ret = tls_data_check(ctx);
+	if (ret == 0) {
+		return 0;
+	}
+
+	/* Either plaintext is now exposed, or the session was closed or
+	 * failed. All three have to wake the poll. Latch the failure so that
+	 * the update path can turn it into POLLHUP or POLLERR, as the
+	 * underlying socket will never report it.
+	 */
+	if (ret < 0 && ret != -ENOTCONN) {
+		ctx->error = -ret;
+	}
+
+	return -EALREADY;
 }
 
 static int ztls_poll_prepare_ctx(struct tls_context *ctx,
@@ -4136,7 +4168,18 @@ static int tls_update_pollin(int fd, struct tls_context *ctx,
 	}
 
 	if ((pfd->revents & ZSOCK_POLLIN) == 0) {
-		/* No new data on a socket. */
+		/* No new data on a socket. A poll prepare probe may still have
+		 * left a closed session or a fatal error behind, which the
+		 * underlying socket will never report.
+		 */
+		if (!ctx->is_listening) {
+			if (ctx->active_session->session_closed) {
+				pfd->revents |= ZSOCK_POLLHUP;
+			} else if (ctx->error != 0) {
+				pfd->revents |= ZSOCK_POLLERR;
+			}
+		}
+
 		goto next;
 	}
 

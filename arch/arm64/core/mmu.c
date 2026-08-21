@@ -59,12 +59,13 @@ static uint64_t *new_table(void)
 			if (xlat_used_count > xlat_peak_count) {
 				xlat_peak_count = xlat_used_count;
 #ifdef CONFIG_ARM64_MMU_REPORT_XLAT_TABLES_USAGE
-				LOG_INF("xlat tables: peak %u of %d allocated",
-					xlat_used_count, CONFIG_MAX_XLAT_TABLES);
+				MMU_LOG_INF("xlat tables: peak %u of %d allocated",
+					    xlat_used_count, CONFIG_MAX_XLAT_TABLES);
 #endif
 				if (xlat_used_count == XLAT_LOW_WATER_THRESHOLD) {
-					LOG_WRN("xlat tables low: %u of %d in use",
-						xlat_used_count, CONFIG_MAX_XLAT_TABLES);
+					MMU_LOG_WRN("xlat tables low: %u of %d in use",
+						    xlat_used_count,
+						    CONFIG_MAX_XLAT_TABLES);
 				}
 			}
 			MMU_DEBUG("allocating table [%d]%p\n", i, table);
@@ -72,11 +73,7 @@ static uint64_t *new_table(void)
 		}
 	}
 
-#if defined(CONFIG_LOG)
-	LOG_ERR("CONFIG_MAX_XLAT_TABLES is too small");
-#else
-	printk("ERROR: CONFIG_MAX_XLAT_TABLES is too small\n");
-#endif
+	MMU_LOG_ERR("CONFIG_MAX_XLAT_TABLES is too small");
 
 	/* Unfortunately many code paths are not ready for failure */
 	k_panic();
@@ -363,9 +360,9 @@ static int set_mapping(uint64_t *top_table, uintptr_t virt, size_t size,
 		}
 
 		if (!may_overwrite && !is_free_desc(*pte)) {
-			LOG_ERR("entry already in use: "
-				"level %d pte %p *pte 0x%016llx",
-				level, pte, *pte);
+			MMU_LOG_ERR("entry already in use: "
+				    "level %d pte %p *pte 0x%016llx",
+				    level, pte, *pte);
 			return -EBUSY;
 		}
 
@@ -1296,17 +1293,50 @@ int arch_mem_domain_init(struct k_mem_domain *domain)
 	struct arm_mmu_ptables *domain_ptables = &domain->arch.ptables;
 	k_spinlock_key_t key;
 	uint16_t asid;
+	uint16_t candidate;
+	bool found = false;
 
 	MMU_DEBUG("%s\n", __func__);
 
 	key = k_spin_lock(&xlat_lock);
 
 	/*
-	 * Pick a new ASID. We use round-robin
-	 * Note: `next_asid` is an uint16_t and `VM_ASID_BITS` could
-	 *  be up to 16, hence `next_asid` might overflow to 0 below.
+	 * Find a free ASID. The round-robin counter may point to an ASID
+	 * still in use by a live domain, so scan domain_list and advance
+	 * until an unused ASID is found.
 	 */
-	asid = next_asid++;
+	candidate = next_asid;
+	do {
+		sys_snode_t *node;
+		struct arch_mem_domain *arch_domain;
+		bool in_use = false;
+
+		SYS_SLIST_FOR_EACH_NODE(&domain_list, node) {
+			arch_domain = CONTAINER_OF(node, struct arch_mem_domain, node);
+			if (get_asid(arch_domain->ptables.ttbr0) == candidate) {
+				in_use = true;
+				break;
+			}
+		}
+
+		if (!in_use) {
+			asid = candidate;
+			found = true;
+			break;
+		}
+
+		candidate++;
+		if ((candidate >= (1UL << VM_ASID_BITS)) || (candidate == 0)) {
+			candidate = 1;
+		}
+	} while (candidate != next_asid);
+
+	if (!found) {
+		k_spin_unlock(&xlat_lock, key);
+		return -ENOMEM;
+	}
+
+	next_asid = candidate + 1;
 	if ((next_asid >= (1UL << VM_ASID_BITS)) || (next_asid == 0)) {
 		next_asid = 1;
 	}
@@ -1336,6 +1366,12 @@ int arch_mem_domain_deinit(struct k_mem_domain *domain)
 
 	key = k_spin_lock(&xlat_lock);
 
+	/*
+	 * Invalidate all TLB entries to flush residual translations
+	 * tagged with this domain's ASID. Without this, stale entries
+	 * could match a new domain reusing the same ASID.
+	 */
+	invalidate_tlb_all();
 	sys_slist_find_and_remove(&domain_list, &domain->arch.node);
 
 	discard_table(domain_ptables->base_xlat_table, BASE_XLAT_LEVEL);
@@ -1501,17 +1537,26 @@ void z_arm64_swap_mem_domains(struct k_thread *incoming)
 #endif /* CONFIG_USERSPACE */
 
 #ifdef CONFIG_DEMAND_PAGING
+/*
+ * The TLBI VAE1 address field is VA[55:12] regardless of the
+ * translation granule (ARM ARM), so the operand is always
+ * virt >> TLBI_VA_SHIFT, not virt >> PAGE_SIZE_SHIFT.
+ */
+#define TLBI_VA_SHIFT 12
+
 static inline void invalidate_tlb_page(uintptr_t virt)
 {
 #ifdef CONFIG_SMP
 	/* Use IS variant to broadcast to all CPUs in Inner Shareable domain */
-	__asm__ volatile (
-	"dsb ishst; tlbi vae1is, %0; dsb ish; isb"
-	: : "r" (virt >> PAGE_SIZE_SHIFT) : "memory");
+	__asm__ volatile("dsb ishst; tlbi vae1is, %0; dsb ish; isb"
+			 :
+			 : "r"(virt >> TLBI_VA_SHIFT)
+			 : "memory");
 #else
-	__asm__ volatile (
-	"dsb ishst; tlbi vae1, %0; dsb ish; isb"
-	: : "r" (virt >> PAGE_SIZE_SHIFT) : "memory");
+	__asm__ volatile("dsb ishst; tlbi vae1, %0; dsb ish; isb"
+			 :
+			 : "r"(virt >> TLBI_VA_SHIFT)
+			 : "memory");
 #endif
 }
 

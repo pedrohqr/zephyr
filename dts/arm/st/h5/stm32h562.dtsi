@@ -133,6 +133,7 @@
 			ranges;
 			clocks = <&rcc STM32_CLOCK(APB2, 21)>,
 				 <&rcc STM32_SRC_PLL1_Q SAI1_SEL(0)>;
+			clock-names = "sai_ck", "sai_ker_ck";
 			status = "disabled";
 
 			sai1_a: sai1a@40015404 {
@@ -551,6 +552,11 @@
 				compatible = "st,stm32-counter";
 				status = "disabled";
 			};
+		};
+
+		hash: crypto@420c0400 {
+			st,has-sha384-algorithm;
+			st,has-sha512-algorithm;
 		};
 
 		rng: rng@420c0800 {

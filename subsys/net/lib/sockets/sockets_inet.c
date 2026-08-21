@@ -173,8 +173,7 @@ int zsock_close_ctx(struct net_context *ctx, int sock)
 		(void)net_context_recv(ctx, NULL, K_NO_WAIT, NULL);
 	}
 
-	ctx->user_data = INT_TO_POINTER(EINTR);
-	sock_set_error(ctx);
+	sock_set_error(ctx, EINTR);
 
 	zsock_flush_queue(ctx);
 
@@ -221,8 +220,7 @@ static void zsock_accepted_cb(struct net_context *new_ctx,
 
 		(void)k_condvar_signal(&parent->cond.recv);
 	} else if (status < 0) {
-		parent->user_data = INT_TO_POINTER(-status);
-		sock_set_error(parent);
+		sock_set_error(parent, -status);
 
 		k_fifo_cancel_wait(&parent->recv_q);
 		(void)k_condvar_signal(&parent->cond.recv);
@@ -254,8 +252,7 @@ static void zsock_received_cb(struct net_context *ctx,
 		user_data);
 
 	if (status < 0) {
-		ctx->user_data = INT_TO_POINTER(-status);
-		sock_set_error(ctx);
+		sock_set_error(ctx, -status);
 	}
 
 	/* if pkt is NULL, EOF */
@@ -360,8 +357,7 @@ int zsock_bind_ctx(struct net_context *ctx, const struct net_sockaddr *addr,
 static void zsock_connected_cb(struct net_context *ctx, int status, void *user_data)
 {
 	if (status < 0) {
-		ctx->user_data = INT_TO_POINTER(-status);
-		sock_set_error(ctx);
+		sock_set_error(ctx, -status);
 
 		/* Wake pending threads, if any. */
 		k_fifo_cancel_wait(&ctx->recv_q);
@@ -407,7 +403,7 @@ int zsock_connect_ctx(struct net_context *ctx, const struct net_sockaddr *addr,
 
 	if (net_context_get_state(ctx) == NET_CONTEXT_CONNECTING) {
 		if (sock_is_error(ctx)) {
-			errno = POINTER_TO_INT(ctx->user_data);
+			errno = sock_get_error(ctx);
 			return -1;
 		}
 
@@ -520,7 +516,7 @@ int zsock_accept_ctx(struct net_context *parent, struct net_sockaddr *addr,
 	}
 
 	if (sock_is_error(parent)) {
-		errno = POINTER_TO_INT(parent->user_data);
+		errno = sock_get_error(parent);
 		return -1;
 	}
 
@@ -984,7 +980,7 @@ int zsock_wait_data(struct net_context *ctx, k_timeout_t *timeout)
 		}
 
 		if (sock_is_error(ctx)) {
-			return -POINTER_TO_INT(ctx->user_data);
+			return -sock_get_error(ctx);
 		}
 	}
 
@@ -1069,7 +1065,7 @@ static int add_pktinfo(struct net_context *ctx,
 
 		net_ipv4_addr_copy_raw((uint8_t *)&info.ipi_addr, ipv4_hdr->dst);
 		net_ipv4_addr_copy_raw((uint8_t *)&info.ipi_spec_dst,
-				       (uint8_t *)net_sin_ptr(&ctx->local)->sin_addr);
+				       (uint8_t *)&net_sin(&ctx->local)->sin_addr);
 		info.ipi_ifindex = ctx->iface;
 
 		ret = insert_pktinfo(msg, NET_IPPROTO_IP, ZSOCK_IP_PKTINFO,
@@ -1462,6 +1458,7 @@ static size_t zsock_recv_stream_immediate(struct net_context *ctx, uint8_t **buf
 	const bool do_recv = !(buf == NULL || max_len == NULL);
 	size_t _max_len = (max_len == NULL) ? SIZE_MAX : *max_len;
 	const bool peek = (flags & ZSOCK_MSG_PEEK) == ZSOCK_MSG_PEEK;
+	const struct net_pkt *head = k_fifo_peek_head(&ctx->recv_q);
 
 	while (_max_len > 0) {
 		/* only peek until we know we can dequeue and / or requeue buffer */
@@ -1509,8 +1506,11 @@ static size_t zsock_recv_stream_immediate(struct net_context *ctx, uint8_t **buf
 
 				net_pkt_unref(pkt);
 			}
-		} else if (!do_recv || peek) {
-			/* requeue packets when observing */
+		} else if ((!do_recv || peek) && _max_len > 0) {
+			/* requeue packets when observing, do not requeue if it is the last packet
+			 * as it will be requeued below. This allows to skip requeuing when
+			 * observing only the first packet
+			 */
 			k_fifo_put(&ctx->recv_q, k_fifo_get(&ctx->recv_q, K_NO_WAIT));
 		}
 	}
@@ -1518,6 +1518,11 @@ static size_t zsock_recv_stream_immediate(struct net_context *ctx, uint8_t **buf
 	if (do_recv) {
 		/* convey remaining buffer size back to caller */
 		*max_len = _max_len;
+	}
+
+	/* when observing, the queue should return to the initial state */
+	while ((!do_recv || peek) && k_fifo_peek_head(&ctx->recv_q) != head) {
+		k_fifo_put(&ctx->recv_q, k_fifo_get(&ctx->recv_q, K_NO_WAIT));
 	}
 
 	return recv_len;
@@ -1585,7 +1590,7 @@ static ssize_t zsock_recv_stream_timed(struct net_context *ctx, struct net_msghd
 					break;
 				}
 
-				return -POINTER_TO_INT(ctx->user_data);
+				return -sock_get_error(ctx);
 			}
 
 			if (sock_is_eof(ctx)) {
@@ -2018,7 +2023,7 @@ int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
 				return -1;
 			}
 
-			*(int *)optval = POINTER_TO_INT(ctx->user_data);
+			*(int *)optval = sock_get_error(ctx);
 
 			return 0;
 		}
@@ -3351,10 +3356,10 @@ int zsock_getsockname_ctx(struct net_context *ctx, struct net_sockaddr *addr,
 	net_socklen_t newlen = 0;
 	int ret;
 
-	if (IS_ENABLED(CONFIG_NET_IPV4) && ctx->local.family == NET_AF_INET) {
+	if (IS_ENABLED(CONFIG_NET_IPV4) && ctx->local.sa_family == NET_AF_INET) {
 		struct net_sockaddr_in addr4 = { 0 };
 
-		if (net_sin_ptr(&ctx->local)->sin_addr == NULL) {
+		if (!net_context_is_local_addr_set(ctx)) {
 			errno = EINVAL;
 			return -1;
 		}
@@ -3371,10 +3376,10 @@ int zsock_getsockname_ctx(struct net_context *ctx, struct net_sockaddr *addr,
 
 		memcpy(addr, &addr4, MIN(*addrlen, newlen));
 
-	} else if (IS_ENABLED(CONFIG_NET_IPV6) && ctx->local.family == NET_AF_INET6) {
+	} else if (IS_ENABLED(CONFIG_NET_IPV6) && ctx->local.sa_family == NET_AF_INET6) {
 		struct net_sockaddr_in6 addr6 = { 0 };
 
-		if (net_sin6_ptr(&ctx->local)->sin6_addr == NULL) {
+		if (!net_context_is_local_addr_set(ctx)) {
 			errno = EINVAL;
 			return -1;
 		}

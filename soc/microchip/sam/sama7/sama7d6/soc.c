@@ -58,6 +58,10 @@ static const struct arm_mmu_region mmu_regions[] = {
 	IF_ENABLED(DT_HAS_COMPAT_STATUS_OKAY(microchip_sha_g1_crypto),
 		   (MMU_REGION_FLAT_ENTRY("sha", SHA_BASE_ADDRESS, 0x100,
 					  MT_STRONGLY_ORDERED | MPERM_R | MPERM_W),))
+
+	IF_ENABLED(DT_HAS_COMPAT_STATUS_OKAY(microchip_trng_g2_entropy),
+		   (MMU_REGION_FLAT_ENTRY("trng", TRNG_BASE_ADDRESS, 0x100,
+					  MT_STRONGLY_ORDERED | MPERM_R | MPERM_W),))
 };
 
 const struct arm_mmu_config mmu_config = {
@@ -73,7 +77,7 @@ void relocate_vector_table(void)
 #define MCAN_CLK_INIT_DEFN(idx, n)								\
 		IF_ENABLED(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(mcan##n)),			\
 			   (PMC_REGS->PMC_PCR = PMC_PCR_PID(ID_MCAN##n);			\
-			    PMC_REGS->PMC_PCR = PMC_REGS->PMC_PCR | PMC_PCR_CMD_Msk |		\
+			    PMC_REGS->PMC_PCR = PMC_PCR_CMD_Msk |				\
 						PMC_PCR_GCLKEN_Msk | PMC_PCR_EN_Msk |		\
 						PMC_PCR_GCLKDIV(4) | PMC_PCR_GCLKCSS_MCK1 |	\
 						PMC_PCR_PID(ID_MCAN##n);))

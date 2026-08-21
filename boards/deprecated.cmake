@@ -46,9 +46,6 @@ set(esp32_devkitc_wrover/esp32/appcpu_DEPRECATED
 set(scobc_module1_DEPRECATED
     scobc_a1
 )
-set(raytac_an54l15q_db/nrf54l15/cpuapp_DEPRECATED
-    raytac_an54lq_db_15/nrf54l15/cpuapp
-)
 set(fvp_base_revc_2xaemv8a_DEPRECATED
     fvp_base_revc_2xaem/v8a
 )
@@ -84,4 +81,7 @@ set(bl54l15u_dvk/nrf54l15/cpuapp_DEPRECATED
 )
 set(bl54l15u_dvk/nrf54l15/cpuflpr_DEPRECATED
     bl54l15_dvk/nrf54l15/cpuflpr
+)
+set(elemrv/elemrv_n_DEPRECATED
+    elemrv_flask_n
 )

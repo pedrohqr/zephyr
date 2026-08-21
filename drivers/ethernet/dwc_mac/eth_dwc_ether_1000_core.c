@@ -34,6 +34,8 @@ LOG_MODULE_REGISTER(dwmac_core, CONFIG_ETHERNET_LOG_LEVEL);
 #define TDES0_FS  BIT(28)
 #define TDES0_TER BIT(21)
 #define TDES0_TCH BIT(20)
+#define TDES0_TTSE BIT(25)
+#define TDES0_TTSS BIT(17)
 #define TDES0_ES  BIT(15)
 #define TDES0_CIC GENMASK(23, 22)
 
@@ -43,6 +45,7 @@ LOG_MODULE_REGISTER(dwmac_core, CONFIG_ETHERNET_LOG_LEVEL);
 #define RDES0_OWN BIT(31)
 #define RDES0_FL  GENMASK(29, 16)
 #define RDES0_ES  BIT(15)
+#define RDES0_TSV BIT(7)
 #define RDES0_FS  BIT(9)
 #define RDES0_LS  BIT(8)
 
@@ -159,6 +162,13 @@ static int dwmac_send(const struct device *dev, struct net_pkt *pkt)
 		}
 	}
 
+	des0_flags = TDES0_OWN | TDES0_FS;
+
+	if (IS_ENABLED(CONFIG_PTP_CLOCK_DWC_MAC) &&
+		net_pkt_is_tx_timestamping(pkt)) {
+		des0_flags |= TDES0_TTSE;
+	}
+
 	K_SPINLOCK(&p->spinlock) {
 		net_pkt_ref(pkt);
 		k_fifo_put(&p->tx_queue, pkt);
@@ -168,7 +178,7 @@ static int dwmac_send(const struct device *dev, struct net_pkt *pkt)
 		barrier_dmem_fence_full();
 
 		d = &p->tx_descs[first_d_idx];
-		d->des0 |= TDES0_OWN | TDES0_FS;
+		d->des0 |= des0_flags;
 
 		barrier_dmem_fence_full();
 		DWMAC_REG_WRITE(DWMAC_DMATPDR, 0);
@@ -198,12 +208,25 @@ static void dwmac_tx_release(const struct device *dev)
 			if (pkt != NULL) {
 				LOG_DBG("pkt len/frags=%zu/%u", net_pkt_get_len(pkt),
 					net_pkt_get_nbfrags(pkt));
+
+#if defined(CONFIG_PTP_CLOCK_DWC_MAC)
+				if ((des0 & TDES0_TTSS) != 0U) {
+#if defined(CONFIG_ETH_DWC_ETHER_1000_CORE_EDFE)
+					pkt->timestamp.second = d->des7;
+					pkt->timestamp.nanosecond = d->des6;
+#else /* CONFIG_ETH_DWC_ETHER_1000_CORE_EDFE */
+					pkt->timestamp.second = d->des3;
+					pkt->timestamp.nanosecond = d->des2;
+#endif /* CONFIG_ETH_DWC_ETHER_1000_CORE_EDFE */
+					net_if_add_tx_timestamp(pkt);
+				}
+#endif /* CONFIG_PTP_CLOCK_DWC_MAC */
 			}
 
 			net_pkt_unref(pkt);
 
 			if ((des0 & TDES0_ES) != 0U) {
-				LOG_ERR("tx error (DES0 = 0x%08x)", des0);
+				LOG_DBG("tx error (DES0 = 0x%08x)", des0);
 				eth_stats_update_errors_tx(p->iface);
 			}
 		}
@@ -213,6 +236,31 @@ static void dwmac_tx_release(const struct device *dev)
 
 	p->tx_desc_tail = d_idx;
 }
+
+#if defined(CONFIG_PTP_CLOCK_DWC_MAC)
+static void dwmac_receive_timestamp(struct net_pkt *pkt, struct dwmac_dma_desc *d)
+{
+#if defined(CONFIG_ETH_DWC_ETHER_1000_CORE_EDFE)
+	if ((d->des0 & RDES0_TSV) == 0U) {
+		return;
+	}
+	pkt->timestamp.second = d->des7;
+	pkt->timestamp.nanosecond = d->des6;
+#else
+	if (d->des2 == UINT32_MAX && d->des3 == UINT32_MAX) {
+		return;
+	}
+
+	pkt->timestamp.second = d->des3;
+	pkt->timestamp.nanosecond = d->des2;
+#endif /* CONFIG_ETH_DWC_ETHER_1000_CORE_EDFE */
+	net_pkt_set_rx_timestamping(pkt, true);
+}
+#else
+static void dwmac_receive_timestamp(struct net_pkt *pkt __unused, struct dwmac_dma_desc *d __unused)
+{
+}
+#endif /* CONFIG_PTP_CLOCK_DWC_MAC */
 
 static void dwmac_receive(const struct device *dev)
 {
@@ -271,9 +319,13 @@ static void dwmac_receive(const struct device *dev)
 
 		if ((des0 & RDES0_LS) != 0U) {
 			if ((des0 & RDES0_ES) == 0U) {
-				net_recv_data(p->iface, p->rx_pkt);
+				dwmac_receive_timestamp(p->rx_pkt, d);
+
+				if (net_recv_data(p->iface, p->rx_pkt) < 0) {
+					net_pkt_unref(p->rx_pkt);
+				}
 			} else {
-				LOG_ERR("rx error (DES0 = 0x%08x)", des0);
+				LOG_DBG("rx error (DES0 = 0x%08x)", des0);
 				eth_stats_update_errors_rx(p->iface);
 				net_pkt_unref(p->rx_pkt);
 			}
@@ -488,6 +540,7 @@ static void dwmac_iface_init(struct net_if *iface)
 
 	DWMAC_REG_WRITE(DWMAC_MACCR,
 			DWMAC_REG_READ(DWMAC_MACCR) |
+			DWMAC_MACCR_APCS |
 			DWMAC_MACCR_CSTF |
 			DWMAC_MACCR_TE |
 			DWMAC_MACCR_RE);
@@ -523,6 +576,40 @@ int dwmac_probe(const struct device *dev)
 	/* get configured hardware features */
 	p->feature0 = DWMAC_REG_READ(DWMAC_HWFR);
 	LOG_DBG("hw_feature: 0x%08x", p->feature0);
+	/* early IP versions don't support this register */
+	if (p->feature0 != 0) {
+		LOG_DBG("10/100 Mbps support: %s",
+			(p->feature0 & DWMAC_HWFR_10_100) ? "yes" : "no");
+		LOG_DBG("1000 Mbps support: %s", (p->feature0 & DWMAC_HWFR_1000) ? "yes" : "no");
+		LOG_DBG("Half-duplex support: %s", (p->feature0 & DWMAC_HWFR_HD) ? "yes" : "no");
+		LOG_DBG("Expanded DA Hash Filter: %s",
+			(p->feature0 & DWMAC_HWFR_HASHF) ? "yes" : "no");
+		LOG_DBG("Multiple MAC Addr Reg: %s",
+			(p->feature0 & DWMAC_HWFR_ADDMAC) ? "yes" : "no");
+		LOG_DBG("PCS register support: %s", (p->feature0 & DWMAC_HWFR_PCS) ? "yes" : "no");
+		LOG_DBG("SMA(MDIO) support: %s",
+			(p->feature0 & DWMAC_HWFR_SMA) ? "yes" : "no");
+		LOG_DBG("PMT Remote Wakeup support: %s",
+			(p->feature0 & DWMAC_HWFR_PMTW) ? "yes" : "no");
+		LOG_DBG("PMT Magic Packet support: %s",
+			(p->feature0 & DWMAC_HWFR_PMTM) ? "yes" : "no");
+		LOG_DBG("RMON support: %s", (p->feature0 & DWMAC_HWFR_RMON) ? "yes" : "no");
+		LOG_DBG("IEEE 1588-2002 support: %s",
+			(p->feature0 & DWMAC_HWFR_TS2002) ? "yes" : "no");
+		LOG_DBG("IEEE 1588-2008 support: %s",
+			(p->feature0 & DWMAC_HWFR_TS2008) ? "yes" : "no");
+		LOG_DBG("TX Checksum Offload support: %s",
+			(p->feature0 & DWMAC_HWFR_TX_CHK) ? "yes" : "no");
+		LOG_DBG("RX Checksum Offload support: %s",
+			(p->feature0 & DWMAC_HWFR_RXCHKV1) ? "yes" : "no");
+		LOG_DBG("RX Checksum Offload v2 support: %s",
+			(p->feature0 & DWMAC_HWFR_RXCHKV2) ? "yes" : "no");
+		LOG_DBG(">2K FIFO support: %s", (p->feature0 & DWMAC_HWFR_FIFO2K) ? "yes" : "no");
+		LOG_DBG("Alternate Descriptor support: %s",
+			(p->feature0 & DWMAC_HWFR_ALTDESC) ? "yes" : "no");
+	}
+
+	DWMAC_REG_WRITE(DWMAC_DMAOMR, DWMAC_DMAOMR_TSF | DWMAC_DMAOMR_RSF);
 
 	ret = dwmac_platform_init(dev);
 	if (ret < 0) {
@@ -538,7 +625,6 @@ int dwmac_probe(const struct device *dev)
 
 	DWMAC_REG_WRITE(DWMAC_DMATDLAR, TXDESC_PHYS_L(0));
 	DWMAC_REG_WRITE(DWMAC_DMARDLAR, RXDESC_PHYS_L(0));
-	DWMAC_REG_WRITE(DWMAC_DMAOMR, DWMAC_DMAOMR_TSF | DWMAC_DMAOMR_RSF);
 
 	if (IS_ENABLED(CONFIG_ETH_DWC_ETHER_RX_HW_CHECKSUM_EN)) {
 		DWMAC_REG_WRITE(DWMAC_MACCR, DWMAC_REG_READ(DWMAC_MACCR) | DWMAC_MACCR_IPCO);
@@ -562,6 +648,9 @@ const struct ethernet_api dwmac_api = {
 	.set_config = dwmac_set_config,
 	.get_phy = dwmac_get_phy,
 	.send = dwmac_send,
+#if defined(CONFIG_PTP_CLOCK_DWC_MAC)
+	.get_ptp_clock = dwmac_get_ptp_clock,
+#endif
 #if defined(CONFIG_NET_STATISTICS_ETHERNET)
 	.get_stats = dwmac_stats,
 #endif
