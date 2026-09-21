@@ -329,6 +329,20 @@ void esp_appcpu_start2(void *entry_point)
 #define sys_mmap   bootloader_mmap
 #define sys_munmap bootloader_munmap
 
+/* SRAM1's IRAM-view window (SRAM1_IRAM_START, memory.h), used by AMP appcpu
+ * placement - distinct from, and mostly above, SOC_IRAM_HIGH (SRAM0's own
+ * ceiling, which is what esp_ptr_in_iram() checks against). The appcpu
+ * image's IRAM destination legitimately lives here, so validate against
+ * these bounds instead.
+ */
+#define APPCPU_IRAM_LOW  0x400A0000
+#define APPCPU_IRAM_HIGH 0x400C0000
+
+static bool ptr_in_appcpu_iram(const void *p)
+{
+	return ((intptr_t)p >= APPCPU_IRAM_LOW) && ((intptr_t)p < APPCPU_IRAM_HIGH);
+}
+
 static int load_segment(uint32_t src_addr, uint32_t src_len, uint32_t dst_addr)
 {
 	const uint32_t *data = (const uint32_t *)sys_mmap(src_addr, src_len);
@@ -383,8 +397,8 @@ int IRAM_ATTR esp_appcpu_image_load(unsigned int hdr_offset, unsigned int *entry
 		abort();
 	}
 
-	if (!esp_ptr_in_iram((void *)image_header.iram_dest_addr) ||
-	    !esp_ptr_in_iram((void *)(image_header.iram_dest_addr + image_header.iram_size))) {
+	if (!ptr_in_appcpu_iram((void *)image_header.iram_dest_addr) ||
+	    !ptr_in_appcpu_iram((void *)(image_header.iram_dest_addr + image_header.iram_size))) {
 		ets_printf("IRAM region in load header is not valid. Aborting");
 		abort();
 	}
@@ -395,7 +409,7 @@ int IRAM_ATTR esp_appcpu_image_load(unsigned int hdr_offset, unsigned int *entry
 		abort();
 	}
 
-	if (!esp_ptr_in_iram((void *)image_header.entry_addr)) {
+	if (!ptr_in_appcpu_iram((void *)image_header.entry_addr)) {
 		ets_printf("Application entry point (%xh) is not in IRAM. Aborting",
 			   image_header.entry_addr);
 		abort();
