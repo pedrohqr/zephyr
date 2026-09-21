@@ -21,8 +21,8 @@ procpu_dram0_end = SRAM2_DRAM_END;
 procpu_dram0_org = SRAM2_DRAM_USER_START + CONFIG_ESP32_BT_RESERVE_DRAM;
 procpu_dram0_len = SRAM2_DRAM_USER_SIZE - CONFIG_ESP32_BT_RESERVE_DRAM;
 
-procpu_dram1_org = SRAM1_DRAM_USER_START;
-procpu_dram1_len = SRAM1_DRAM_USER_SIZE;
+procpu_dram1_org = SRAM1_DRAM_USER_START + APPCPU_SRAM_SIZE;
+procpu_dram1_len = SRAM1_DRAM_USER_SIZE - APPCPU_SRAM_SIZE;
 
 procpu_irom_org = ICACHE0_START;
 procpu_irom_len = ICACHE0_SIZE;
