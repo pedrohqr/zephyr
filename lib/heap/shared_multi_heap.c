@@ -12,6 +12,7 @@
 #include <zephyr/multi_heap/shared_multi_heap.h>
 
 static struct sys_multi_heap shared_multi_heap;
+static struct k_spinlock smh_lock;
 
 static struct {
 	struct sys_heap heap_pool[MAX_MULTI_HEAPS];
@@ -54,6 +55,7 @@ int shared_multi_heap_add(struct shared_multi_heap_region *region, void *user_da
 	enum shared_multi_heap_attr attr;
 	struct sys_heap *h;
 	unsigned int slot;
+	k_spinlock_key_t key;
 
 	attr = region->attr;
 
@@ -61,8 +63,11 @@ int shared_multi_heap_add(struct shared_multi_heap_region *region, void *user_da
 		return -EINVAL;
 	}
 
+	key = k_spin_lock(&smh_lock);
+
 	/* No more heaps available */
 	if (smh_data[attr].heap_cnt >= MAX_MULTI_HEAPS) {
+		k_spin_unlock(&smh_lock, key);
 		return -ENOMEM;
 	}
 
@@ -74,42 +79,69 @@ int shared_multi_heap_add(struct shared_multi_heap_region *region, void *user_da
 
 	smh_data[attr].heap_cnt++;
 
+	k_spin_unlock(&smh_lock, key);
+
 	return 0;
 }
 
 void shared_multi_heap_free(void *block)
 {
+	k_spinlock_key_t key = k_spin_lock(&smh_lock);
+
 	sys_multi_heap_free(&shared_multi_heap, block);
+
+	k_spin_unlock(&smh_lock, key);
 }
 
 void *shared_multi_heap_alloc(enum shared_multi_heap_attr attr, size_t bytes)
 {
+	k_spinlock_key_t key;
+	void *block;
+
 	if (attr >= MAX_SHARED_MULTI_HEAP_ATTR) {
 		return NULL;
 	}
 
-	return sys_multi_heap_alloc(&shared_multi_heap, (void *)(long) attr, bytes);
+	key = k_spin_lock(&smh_lock);
+	block = sys_multi_heap_alloc(&shared_multi_heap, (void *)(long) attr, bytes);
+	k_spin_unlock(&smh_lock, key);
+
+	return block;
 }
 
 void *shared_multi_heap_realloc(enum shared_multi_heap_attr attr, void *ptr, size_t bytes)
 {
+	k_spinlock_key_t key;
+	void *block;
+
 	if (attr >= MAX_SHARED_MULTI_HEAP_ATTR) {
 		return NULL;
 	}
 
-	return sys_multi_heap_aligned_realloc(&shared_multi_heap, (void *)(long) attr,
-					      ptr, 0, bytes);
+	key = k_spin_lock(&smh_lock);
+	block = sys_multi_heap_aligned_realloc(&shared_multi_heap, (void *)(long) attr,
+					       ptr, 0, bytes);
+	k_spin_unlock(&smh_lock, key);
+
+	return block;
 }
 
 void *shared_multi_heap_aligned_alloc(enum shared_multi_heap_attr attr,
 				      size_t align, size_t bytes)
 {
+	k_spinlock_key_t key;
+	void *block;
+
 	if (attr >= MAX_SHARED_MULTI_HEAP_ATTR) {
 		return NULL;
 	}
 
-	return sys_multi_heap_aligned_alloc(&shared_multi_heap, (void *)(long) attr,
-					    align, bytes);
+	key = k_spin_lock(&smh_lock);
+	block = sys_multi_heap_aligned_alloc(&shared_multi_heap, (void *)(long) attr,
+					     align, bytes);
+	k_spin_unlock(&smh_lock, key);
+
+	return block;
 }
 
 int shared_multi_heap_pool_init(void)
