@@ -510,9 +510,12 @@ int esp_intr_alloc_intrstatus(int source,
 	 * If we are to allow placing interrupt handlers into the 0x400c0000—0x400c2000 region,
 	 * we need to make sure the interrupt is connected to the CPU0.
 	 * CPU1 does not have access to the RTC fast memory through this region.
+	 * On the ESP32, the APPCPU image runs from SRAM1's instruction view, above
+	 * SOC_IRAM_HIGH, so that range is accepted as IRAM too.
 	 */
 	if ((flags & ESP_INTR_FLAG_IRAM) && handler && !esp_ptr_in_iram(handler) &&
-	    !esp_ptr_in_rtc_iram_fast(handler) && !esp_ptr_in_rom(handler)) {
+	    !esp_ptr_in_diram_iram(handler) && !esp_ptr_in_rtc_iram_fast(handler) &&
+	    !esp_ptr_in_rom(handler)) {
 		return -EINVAL;
 	}
 
