@@ -116,6 +116,21 @@
 
 #define APPCPU_SRAM_SIZE (APPCPU_IRAM_SIZE + APPCPU_DRAM_SIZE)
 
+/* The APPCPU DRAM starts past the AMP shared buffers (IPM data, shm0 and the
+ * IPM control block), where its IRAM reservation below USER_IRAM_END mirrors it.
+ */
+#if defined(CONFIG_SOC_ENABLE_APPCPU) || defined(CONFIG_SOC_ESP32_APPCPU)
+#define APPCPU_DRAM_ORG DRAM1_AMP_SHM_BUFFERS_END
+#else
+#define APPCPU_DRAM_ORG SRAM1_DRAM_USER_START
+#endif
+
+/* The APPCPU IRAM sits in SRAM1, whose instruction view maps the data view in
+ * reverse order: seen as DRAM it ends at this address, so any PROCPU data kept
+ * in SRAM1 must start at or above it.
+ */
+#define APPCPU_IRAM_DRAM_END SRAM1_IRAM_DRAM_CALC(USER_IRAM_END - APPCPU_SRAM_SIZE)
+
 /* Cached memories */
 #define ICACHE0_START DT_REG_ADDR(DT_NODELABEL(icache0))
 #define ICACHE0_SIZE  DT_REG_SIZE(DT_NODELABEL(icache0))
