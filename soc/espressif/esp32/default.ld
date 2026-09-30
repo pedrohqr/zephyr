@@ -21,12 +21,12 @@ procpu_dram0_end = SRAM2_DRAM_END;
 procpu_dram0_org = SRAM2_DRAM_USER_START + CONFIG_ESP32_BT_RESERVE_DRAM;
 procpu_dram0_len = SRAM2_DRAM_USER_SIZE - CONFIG_ESP32_BT_RESERVE_DRAM;
 
-/* The APPCPU image loads its DRAM segment at SRAM1_DRAM_USER_START while
- * its IRAM segment lands in SRAM0, so only APPCPU_DRAM_SIZE is carved out
- * of this region.
+/* The APPCPU image loads its DRAM segment at APPCPU_DRAM_ORG and its IRAM
+ * segment into SRAM1's instruction view, which is the same memory seen in
+ * reverse order: this region starts above both.
  */
-procpu_dram1_org = SRAM1_DRAM_USER_START + APPCPU_DRAM_SIZE;
-procpu_dram1_len = SRAM1_DRAM_USER_SIZE - APPCPU_DRAM_SIZE;
+procpu_dram1_org = MAX(APPCPU_DRAM_ORG + APPCPU_DRAM_SIZE, APPCPU_IRAM_DRAM_END);
+procpu_dram1_len = SRAM1_DRAM_END - procpu_dram1_org;
 
 procpu_irom_org = ICACHE0_START;
 procpu_irom_len = ICACHE0_SIZE;
@@ -914,6 +914,10 @@ SECTIONS
   _image_ram_size += _iram_end - _init_start;
 
   ASSERT(((_end - ORIGIN(dram0_0_seg)) <= LENGTH(dram0_0_seg)), "DRAM data does not fit.")
+
+  /* IRAM code spilling past SRAM0 shares SRAM1 with the data placed there. */
+  ASSERT((_iram_end <= SRAM1_IRAM_START) || (_iram_end_at_dram_addr >= __dram_noinit_end),
+         "IRAM code in SRAM1 overlaps DRAM data.")
 
   /* --- DRAM END --- */
 
