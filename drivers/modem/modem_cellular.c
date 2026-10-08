@@ -2967,6 +2967,13 @@ int cellular_modem_resume_periodic_script(const struct device *dev)
 static const struct cellular_stats *modem_cellular_get_stats(const struct device *dev)
 {
 	struct modem_cellular_data *data = (struct modem_cellular_data *)dev->data;
+	const struct modem_cellular_config *config = dev->config;
+
+	/* Link-level losses are counted by the modem modules themselves */
+	data->stats.uart_rx_dropped = modem_backend_uart_get_receive_dropped(&data->uart_backend);
+	data->stats.cmux_frames_dropped = modem_cmux_get_frames_dropped(&data->cmux);
+	data->stats.cmux_rx_dropped = modem_cmux_get_receive_dropped(&data->cmux);
+	data->stats.ppp_fcs_errors = modem_ppp_get_rx_fcs_errors(config->ppp);
 
 	return &data->stats;
 }

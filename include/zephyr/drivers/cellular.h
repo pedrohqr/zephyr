@@ -217,6 +217,14 @@ struct cellular_stats {
 	uint32_t recoveries;
 	/** CMUX desync/disconnect events. */
 	uint32_t cmux_disconnects;
+	/** Received bytes the UART backend dropped because its buffer was full. */
+	uint32_t uart_rx_dropped;
+	/** Malformed CMUX frames dropped: bytes lost or corrupted on the UART. */
+	uint32_t cmux_frames_dropped;
+	/** Received bytes dropped because a CMUX channel buffer was full. */
+	uint32_t cmux_rx_dropped;
+	/** Received PPP frames dropped because of a bad FCS. */
+	uint32_t ppp_fcs_errors;
 };
 
 /**
