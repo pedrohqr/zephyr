@@ -91,6 +91,10 @@ struct modem_ppp {
 
 	/* Allocated network packet being created */
 	struct net_pkt *rx_pkt;
+	/* FCS accumulated over the frame being received */
+	uint16_t rx_pkt_fcs;
+	/* Received frames dropped because their FCS did not match */
+	uint32_t rx_fcs_errors;
 
 	/* Packet being sent */
 	enum modem_ppp_transmit_state transmit_state;
@@ -146,6 +150,17 @@ struct net_if *modem_ppp_get_iface(struct modem_ppp *ppp);
  * @param ppp Modem PPP instance
  */
 void modem_ppp_release(struct modem_ppp *ppp);
+
+/**
+ * @brief Get the number of received frames dropped because of a bad FCS
+ *
+ * @details A frame whose FCS does not match was corrupted or truncated on the
+ * link to the modem, typically by a UART receive overrun.
+ *
+ * @param ppp Modem PPP instance
+ * @returns Frames dropped since boot
+ */
+uint32_t modem_ppp_get_rx_fcs_errors(const struct modem_ppp *ppp);
 
 /**
  * @cond INTERNAL_HIDDEN
