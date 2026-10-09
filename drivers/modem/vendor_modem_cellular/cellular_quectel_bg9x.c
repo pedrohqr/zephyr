@@ -18,9 +18,33 @@ MODEM_CHAT_SCRIPT_CMDS_DEFINE(
 MODEM_CHAT_SCRIPT_DEFINE(quectel_bg9x_set_baudrate_chat_script, quectel_bg9x_set_baudrate_cmds,
 			 abort_matches, modem_cellular_chat_callback_handler, 1);
 
+/* A module variant may reject a RAT setting (e.g. "nwscanmode" on the BG95-M1): go on. */
+MODEM_CHAT_MATCHES_DEFINE(__maybe_unused quectel_bg9x_rat_match, MODEM_CHAT_MATCH("OK", "", NULL),
+			  MODEM_CHAT_MATCH("ERROR", "", NULL),
+			  MODEM_CHAT_MATCH("+CME ERROR: ", "", NULL));
+
+#if defined(CONFIG_MODEM_CELLULAR_QUECTEL_BG9X_RAT_LTE_M)
+#define QUECTEL_BG9X_IOTOPMODE "0"
+#define QUECTEL_BG9X_SCANSEQ   "02"
+#elif defined(CONFIG_MODEM_CELLULAR_QUECTEL_BG9X_RAT_NB_IOT)
+#define QUECTEL_BG9X_IOTOPMODE "1"
+#define QUECTEL_BG9X_SCANSEQ   "03"
+#elif defined(CONFIG_MODEM_CELLULAR_QUECTEL_BG9X_RAT_LTE_M_NB_IOT)
+#define QUECTEL_BG9X_IOTOPMODE "2"
+#define QUECTEL_BG9X_SCANSEQ   "0203"
+#endif
+
 MODEM_CHAT_SCRIPT_CMDS_DEFINE(
 	quectel_bg9x_init_chat_script_cmds, MODEM_CHAT_SCRIPT_CMD_RESP("AT+CFUN=4", ok_match),
 	MODEM_CHAT_SCRIPT_CMD_RESP("AT+CMEE=1", ok_match),
+#if defined(QUECTEL_BG9X_IOTOPMODE)
+	/* Radio off: the settings take effect without starting a network search. */
+	MODEM_CHAT_SCRIPT_CMD_RESP_MULT("AT+QCFG=\"nwscanmode\",3,1", quectel_bg9x_rat_match),
+	MODEM_CHAT_SCRIPT_CMD_RESP_MULT("AT+QCFG=\"iotopmode\"," QUECTEL_BG9X_IOTOPMODE ",1",
+					quectel_bg9x_rat_match),
+	MODEM_CHAT_SCRIPT_CMD_RESP_MULT("AT+QCFG=\"nwscanseq\"," QUECTEL_BG9X_SCANSEQ ",1",
+					quectel_bg9x_rat_match),
+#endif
 	MODEM_CHAT_SCRIPT_CMD_RESP_MULT("AT+CGSN", imei_match),
 	MODEM_CHAT_SCRIPT_CMD_RESP_MULT("AT+CGMM", cgmm_match),
 	MODEM_CHAT_SCRIPT_CMD_RESP_MULT("AT+CGMI", cgmi_match),

@@ -211,4 +211,34 @@ config MODEM_CELLULAR_CLEAR_FORBIDDEN
 
 endif #DT_HAS_U_BLOX_LARA_R6_ENABLED
 
+if DT_HAS_QUECTEL_BG95_ENABLED || DT_HAS_QUECTEL_BG96_ENABLED
+
+choice MODEM_CELLULAR_QUECTEL_BG9X_RAT
+	prompt "Quectel BG9x radio access technologies"
+	default MODEM_CELLULAR_QUECTEL_BG9X_RAT_KEEP
+	help
+	  Radio access technologies the modem searches, written at every
+	  start while the radio is off (AT+CFUN=4): LTE only
+	  (AT+QCFG="nwscanmode",3), then the LTE category
+	  (AT+QCFG="iotopmode") and the search order (AT+QCFG="nwscanseq").
+	  A module variant that rejects one of these commands keeps its
+	  setting. A RAT order stored on the SIM card overrides the search
+	  order.
+
+config MODEM_CELLULAR_QUECTEL_BG9X_RAT_KEEP
+	bool "Keep the configuration saved in the modem"
+
+config MODEM_CELLULAR_QUECTEL_BG9X_RAT_LTE_M
+	bool "LTE-M (eMTC) only"
+
+config MODEM_CELLULAR_QUECTEL_BG9X_RAT_NB_IOT
+	bool "NB-IoT only"
+
+config MODEM_CELLULAR_QUECTEL_BG9X_RAT_LTE_M_NB_IOT
+	bool "LTE-M, then NB-IoT"
+
+endchoice
+
+endif # DT_HAS_QUECTEL_BG95_ENABLED || DT_HAS_QUECTEL_BG96_ENABLED
+
 endif #MODEM_CELLULAR
