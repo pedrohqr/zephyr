@@ -324,7 +324,6 @@ void esp_appcpu_start2(void *entry_point)
 #ifdef CONFIG_SOC_ENABLE_APPCPU
 
 #include <bootloader_flash_priv.h>
-#include <hal/cpu_utility_ll.h>
 
 #define sys_mmap   bootloader_mmap
 #define sys_munmap bootloader_munmap
@@ -437,34 +436,9 @@ int IRAM_ATTR esp_appcpu_image_load(unsigned int hdr_offset, unsigned int *entry
 	return 0;
 }
 
-static bool appcpu_running;
-static bool appcpu_paused;
-
 void esp_appcpu_image_stop(void)
 {
-	appcpu_running = false;
 	esp_cpu_stall(1);
-}
-
-/* A flash operation suspends the flash access the APPCPU cache relies on, and
- * the APPCPU image may be executing from flash: halt the APPCPU for its
- * duration. Both images share no locks, so stopping it at any instruction
- * cannot deadlock the PROCPU.
- */
-void IRAM_ATTR soc_mp_pause_others(void)
-{
-	if (appcpu_running) {
-		cpu_utility_ll_stall_cpu(1);
-		appcpu_paused = true;
-	}
-}
-
-void IRAM_ATTR soc_mp_resume_others(void)
-{
-	if (appcpu_paused) {
-		appcpu_paused = false;
-		cpu_utility_ll_unstall_cpu(1);
-	}
 }
 
 void esp_appcpu_image_start(unsigned int hdr_offset)
@@ -481,7 +455,6 @@ void esp_appcpu_image_start(unsigned int hdr_offset)
 	esp_appcpu_image_load(hdr_offset, &entry_addr);
 
 	esp_appcpu_start2((void *)entry_addr);
-	appcpu_running = true;
 }
 
 int esp_appcpu_init(void)
