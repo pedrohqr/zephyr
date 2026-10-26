@@ -1425,13 +1425,9 @@ static int uart_esp32_init(const struct device *dev)
 	}
 
 #if CONFIG_UART_INTERRUPT_DRIVEN || CONFIG_UART_ASYNC_API || CONFIG_PM
-	/* Not an IRAM interrupt: the handler calls the user callback (irq_cb), which may live in
-	 * flash and cannot run while a flash operation has the cache off. Masked during the
-	 * operation, it runs right after it.
-	 */
 	ret = esp_intr_alloc(config->irq_source,
 			     ESP_PRIO_TO_FLAGS(config->irq_priority) |
-				     ESP_INT_FLAGS_CHECK(config->irq_flags),
+				     ESP_INT_FLAGS_CHECK(config->irq_flags) | ESP_INTR_FLAG_IRAM,
 			     (intr_handler_t)uart_esp32_isr, (void *)dev, NULL);
 	if (ret < 0) {
 		LOG_ERR("Error allocating UART interrupt (%d)", ret);
