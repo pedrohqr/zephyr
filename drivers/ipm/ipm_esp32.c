@@ -218,14 +218,10 @@ static int esp32_ipm_init(const struct device *dev)
 
 	/* pro_cpu is responsible to initialize the lock of shared memory */
 	if (data->this_core_id == 0) {
-		/* Not an IRAM interrupt: during a flash operation the PRO_CPU runs with its cache
-		 * off and the APP_CPU stalled, and this handler would run the (flash-resident)
-		 * callback, or spin on a lock the stalled APP_CPU holds. Masked, it runs right
-		 * after the operation instead.
-		 */
 		ret = esp_intr_alloc(cfg->irq_source_pro_cpu,
 				ESP_PRIO_TO_FLAGS(cfg->irq_priority_pro_cpu) |
-				ESP_INT_FLAGS_CHECK(cfg->irq_flags_pro_cpu),
+				ESP_INT_FLAGS_CHECK(cfg->irq_flags_pro_cpu) |
+					ESP_INTR_FLAG_IRAM,
 				(intr_handler_t)esp32_ipm_isr,
 				(void *)dev,
 				NULL);
