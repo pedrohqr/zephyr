@@ -605,6 +605,15 @@ static int64_t check_notifications(struct lwm2m_ctx *ctx, const int64_t timestam
 			continue;
 		}
 
+		/*
+		 * The previous notification is not acknowledged yet: try again a bit later. From
+		 * now, as the event may be long past, and before computing the next event, or the
+		 * caller would poll without waiting until the acknowledgment.
+		 */
+		if (timestamp >= obs->event_timestamp && obs->active_notify != NULL) {
+			obs->event_timestamp = timestamp + NOTIFY_DELAY_MS;
+		}
+
 		if (obs->event_timestamp < next) {
 			next = obs->event_timestamp;
 		}
@@ -612,15 +621,11 @@ static int64_t check_notifications(struct lwm2m_ctx *ctx, const int64_t timestam
 		if (timestamp < obs->event_timestamp) {
 			continue;
 		}
-		/* Check That There is not pending process*/
-		if (obs->active_notify != NULL) {
-			obs->event_timestamp += NOTIFY_DELAY_MS;
-			continue;
-		}
 
 		rc = generate_notify_message(ctx, obs, NULL);
 		if (rc == -ENOMEM) {
 			/* no memory/messages available, retry later */
+			next = timestamp + NOTIFY_DELAY_MS;
 			goto cleanup;
 		}
 		obs->event_timestamp =
