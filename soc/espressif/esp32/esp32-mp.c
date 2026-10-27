@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <errno.h>
+
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 #include <zephyr/spinlock.h>
@@ -387,30 +389,30 @@ int IRAM_ATTR esp_appcpu_image_load(unsigned int hdr_offset, unsigned int *entry
 			   fa_id, img_off, hdr_offset, fa_size / 1024);
 	} else if ((image_header.header_magic & 0xff) == 0xE9) {
 		ets_printf("ESP image format is not supported\n");
-		abort();
+		return -ENOEXEC;
 	} else {
-		ets_printf("Unknown or empty image detected. Aborting!\n");
-		abort();
+		ets_printf("Unknown or empty image detected. APPCPU not started\n");
+		return -ENOEXEC;
 	}
 
 	iram_end = image_header.iram_dest_addr + image_header.iram_size;
 
 	if (!ptr_in_appcpu_iram((void *)image_header.iram_dest_addr) ||
 	    !ptr_in_appcpu_iram((void *)iram_end)) {
-		ets_printf("IRAM region in load header is not valid. Aborting");
-		abort();
+		ets_printf("IRAM region in load header is not valid: APPCPU not started");
+		return -ENOEXEC;
 	}
 
 	if (!esp_ptr_in_dram((void *)image_header.dram_dest_addr) ||
 	    !esp_ptr_in_dram((void *)(image_header.dram_dest_addr + image_header.dram_size))) {
-		ets_printf("DRAM region in load header is not valid. Aborting");
-		abort();
+		ets_printf("DRAM region in load header is not valid: APPCPU not started");
+		return -ENOEXEC;
 	}
 
 	if (!ptr_in_appcpu_iram((void *)image_header.entry_addr)) {
-		ets_printf("Application entry point (%xh) is not in IRAM. Aborting",
+		ets_printf("Application entry point (%xh) is not in IRAM: APPCPU not started",
 			   image_header.entry_addr);
-		abort();
+		return -ENOEXEC;
 	}
 
 	ets_printf("IRAM segment: paddr=%08xh, vaddr=%08xh, size=%05xh (%6d) load\n",
@@ -451,8 +453,14 @@ void esp_appcpu_image_start(unsigned int hdr_offset)
 		return;
 	}
 
-	/* Input image meta header, output appcpu entry point */
-	esp_appcpu_image_load(hdr_offset, &entry_addr);
+	/* Input image meta header, output appcpu entry point. An image that is not valid (for
+	 * instance a copy cut short by a power loss) leaves the APPCPU stopped instead of
+	 * aborting the PROCPU, which can then restore or update it.
+	 */
+	if (esp_appcpu_image_load(hdr_offset, &entry_addr) != 0) {
+		printk("APPCPU image not valid: APPCPU not started\n");
+		return;
+	}
 
 	esp_appcpu_start2((void *)entry_addr);
 }
