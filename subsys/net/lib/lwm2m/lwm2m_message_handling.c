@@ -87,8 +87,14 @@ static struct lwm2m_message *ongoing_block2_tx;
  */
 #define ENCODE_BUFFER_POOL_SIZE (CONFIG_LWM2M_NUM_OUTPUT_BLOCK_CONTEXT + 1)
 /* buffers for serializing big message bodies */
+#if defined(CONFIG_LWM2M_COAP_ENCODE_BUFFER_CUSTOM_SECTION)
+K_MEM_SLAB_DEFINE_IN_SECT_STATIC(body_encode_buffer_slab,
+				 Z_GENERIC_SECTION(CONFIG_LWM2M_COAP_ENCODE_BUFFER_SECTION_NAME),
+				 CONFIG_LWM2M_COAP_ENCODE_BUFFER_SIZE, ENCODE_BUFFER_POOL_SIZE, 4);
+#else
 K_MEM_SLAB_DEFINE_STATIC(body_encode_buffer_slab, CONFIG_LWM2M_COAP_ENCODE_BUFFER_SIZE,
 			 ENCODE_BUFFER_POOL_SIZE, 4);
+#endif
 #endif
 
 /* External resources */
