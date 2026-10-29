@@ -883,13 +883,7 @@ SECTIONS
     _ext_ram_start = ABSOLUTE(.);
     _ext_ram_noinit_start = ABSOLUTE(.);
 
-#ifdef CONFIG_ESP32_WIFI_NET_ALLOC_SPIRAM
-    *libdrivers__wifi.a:(.noinit .noinit.*)
-    *libsubsys__net__l2__ethernet.a:(.noinit .noinit.*)
-    *libsubsys__net__lib__config.a:(.noinit .noinit.*)
-    *libsubsys__net__ip.a:(.noinit .noinit.*)
-    *libsubsys__net.a:(.noinit .noinit.*)
-#endif
+#include <esp_spiram_relocate_noinit_ext_ram.ld.inc>
     . = ALIGN(16);
     *(.ext_ram_noinit*)
     . = ALIGN(16);
@@ -928,8 +922,7 @@ SECTIONS
   .dram0.noinit (NOLOAD) :
   {
     . = ALIGN(4);
-    *(.noinit)
-    *(.noinit.*)
+#include <esp_spiram_relocate_noinit.ld.inc>
 #if defined(CONFIG_LLEXT) && !defined(CONFIG_LLEXT_CUSTOM_HEAP_PLACEMENT)
     *(.llext_metadata_heap)
     *(.llext_data_heap)
