@@ -1217,7 +1217,15 @@ static int interface_send(struct net_if *iface, struct net_pkt *pkt)
 	if (peer->last_tx == 0) {
 		peer->send_handshake = true;
 		memcpy(&peer->endpoint, &peer->cfg_endpoint, sizeof(peer->endpoint));
+#if CONFIG_WIREGUARD_WORKQ_STACK_SIZE > 0
+		/* The periodic timer sends the initiation, on the Wireguard
+		 * work queue rather than on the stack of the sending thread.
+		 */
+		(void)k_work_reschedule_for_queue(WG_WORKQ, &ctx->wg_ctx->wg_periodic_timer,
+						  K_NO_WAIT);
+#else
 		start_handshake(ctx, peer);
+#endif
 
 		peer->last_tx = sys_clock_tick_get_32();
 
