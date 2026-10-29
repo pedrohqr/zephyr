@@ -828,8 +828,7 @@ SECTIONS
   .dram0.noinit (NOLOAD):
   {
     . = ALIGN(4);
-    *(.noinit)
-    *(.noinit.*)
+#include <esp_spiram_relocate_noinit.ld.inc>
 #ifdef CONFIG_USERSPACE
     z_user_stacks_start = .;
     *(.user_stacks*)
@@ -1048,6 +1047,7 @@ SECTIONS
   {
     _ext_ram_start = ABSOLUTE(.);
     _ext_ram_noinit_start = ABSOLUTE(.);
+#include <esp_spiram_relocate_noinit_ext_ram.ld.inc>
     . = ALIGN(16);
     *(.ext_ram_noinit.*)
     . = ALIGN(16);

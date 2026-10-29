@@ -269,6 +269,16 @@ config ESP_SPIRAM_BSS_RELOC_LIBS_AND_OBJS
 	  Space-separated list of library or object file names (e.g. libfile.a or file.o). Their .bss segments
 	  will be placed in .ext_ram.data when CONFIG_ESP_SPIRAM is enabled. Leave empty to not relocate any BSS.
 
+config ESP_SPIRAM_NOINIT_RELOC_LIBS_AND_OBJS
+	string "Libraries and objects to relocate .noinit to PSRAM"
+	default ""
+	help
+	  Space-separated list of library or object file names (e.g. libfile.a or file.o). Their
+	  .noinit sections, which hold thread stacks, memory slabs and network buffer pools, are
+	  placed in the PSRAM noinit area, as ESP32_WIFI_NET_ALLOC_SPIRAM does for the WiFi and
+	  network libraries. The cache, and with it PSRAM, is disabled during flash operations: a
+	  thread whose stack is relocated must not perform them.
+
 endmenu # Relocate BSS to PSRAM
 
 endmenu # ESP_SPIRAM

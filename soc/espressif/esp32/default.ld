@@ -883,23 +883,7 @@ SECTIONS
   {
     . = ALIGN (4);
     __dram_noinit_start = ABSOLUTE(.);
-#ifdef CONFIG_ESP32_WIFI_NET_ALLOC_SPIRAM
-    *(EXCLUDE_FILE(
-      *libdrivers__wifi.a:*
-      *libsubsys__net__l2__ethernet.a:*
-      *libsubsys__net__lib__config.a:*
-      *libsubsys__net__ip.a:*
-      *libsubsys__net.a:* ) .noinit)
-    *(EXCLUDE_FILE(
-      *libdrivers__wifi.a:*
-      *libsubsys__net__l2__ethernet.a:*
-      *libsubsys__net__lib__config.a:*
-      *libsubsys__net__ip.a:*
-      *libsubsys__net.a:* ) .noinit.*)
-#else
-    *(.noinit)
-    *(.noinit.*)
-#endif /* CONFIG_ESP32_WIFI_NET_ALLOC_SPIRAM */
+#include <esp_spiram_relocate_noinit.ld.inc>
 #if defined(CONFIG_LLEXT) && !defined(CONFIG_LLEXT_CUSTOM_HEAP_PLACEMENT)
     *(.llext_metadata_heap)
     *(.llext_data_heap)
@@ -930,13 +914,7 @@ SECTIONS
     _ext_ram_start = ABSOLUTE(.);
     _ext_ram_noinit_start = ABSOLUTE(.);
 
-#ifdef CONFIG_ESP32_WIFI_NET_ALLOC_SPIRAM
-    *libdrivers__wifi.a:(.noinit .noinit.*)
-    *libsubsys__net__l2__ethernet.a:(.noinit .noinit.*)
-    *libsubsys__net__lib__config.a:(.noinit .noinit.*)
-    *libsubsys__net__ip.a:(.noinit .noinit.*)
-    *libsubsys__net.a:(.noinit .noinit.*)
-#endif
+#include <esp_spiram_relocate_noinit_ext_ram.ld.inc>
     . = ALIGN(16);
     *(.ext_ram_noinit*)
     . = ALIGN(16);
