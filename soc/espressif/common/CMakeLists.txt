@@ -57,6 +57,55 @@ else()
   file(WRITE "${_extram_inc}" "")
 endif()
 
+# Generate linker snippets for .noinit relocation to PSRAM: the libraries of
+# ESP32_WIFI_NET_ALLOC_SPIRAM and those of ESP_SPIRAM_NOINIT_RELOC_LIBS_AND_OBJS.
+set(_noinit_inc "${PROJECT_BINARY_DIR}/include/generated/esp_spiram_relocate_noinit.ld.inc")
+set(_noinit_extram_inc
+    "${PROJECT_BINARY_DIR}/include/generated/esp_spiram_relocate_noinit_ext_ram.ld.inc")
+
+set(_relocate_noinit "")
+
+if(CONFIG_ESP32_WIFI_NET_ALLOC_SPIRAM)
+  list(APPEND _relocate_noinit
+    libdrivers__wifi.a
+    libsubsys__net__l2__ethernet.a
+    libsubsys__net__lib__config.a
+    libsubsys__net__ip.a
+    libsubsys__net.a
+  )
+endif()
+
+if(CONFIG_ESP_SPIRAM AND NOT "${CONFIG_ESP_SPIRAM_NOINIT_RELOC_LIBS_AND_OBJS}" STREQUAL "")
+  string(REPLACE " " ";" _tmp "${CONFIG_ESP_SPIRAM_NOINIT_RELOC_LIBS_AND_OBJS}")
+  foreach(obj IN LISTS _tmp)
+    string(STRIP "${obj}" obj)
+    if(NOT obj STREQUAL "")
+      list(APPEND _relocate_noinit "${obj}")
+    endif()
+  endforeach()
+endif()
+
+if(_relocate_noinit)
+  list(REMOVE_DUPLICATES _relocate_noinit)
+  set(_exclude "")
+  set(_extram "")
+  foreach(obj IN LISTS _relocate_noinit)
+    string(APPEND _exclude "*${obj}:* ")
+    string(APPEND _extram "    *${obj}:(.noinit .noinit.*)\n")
+  endforeach()
+  string(STRIP "${_exclude}" _exclude)
+
+  file(WRITE "${_noinit_inc}"
+    "    *(EXCLUDE_FILE(${_exclude}) .noinit)\n"
+    "    *(EXCLUDE_FILE(${_exclude}) .noinit.*)\n")
+  file(WRITE "${_noinit_extram_inc}" "${_extram}")
+else()
+  file(WRITE "${_noinit_inc}"
+    "    *(.noinit)\n"
+    "    *(.noinit.*)\n")
+  file(WRITE "${_noinit_extram_inc}" "")
+endif()
+
 # Get flash size in MB for esptool from the chosen zephyr,flash node
 dt_chosen(dts_flash PROPERTY "zephyr,flash")
 dt_reg_size(flash_size_bytes PATH ${dts_flash})
