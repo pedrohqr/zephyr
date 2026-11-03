@@ -235,9 +235,13 @@ config MCP_TOOL_OUTPUT_SCHEMA
 
 config MCP_TOOL_RESULT_MAX_LEN
 	int "Maximum tool execution result length"
-	default 256
+	default 255
 	help
-	  Maximum length for tool execution result.
+	  Maximum length in bytes of the text a tool returns, without the
+	  terminating NUL; a longer text is truncated. A tools/call result,
+	  allocated from the large slab when MCP_ALLOC_SLAB is enabled, holds
+	  two such text blocks, so this must stay below half of
+	  MCP_MAX_MESSAGE_SIZE.
 
 config MCP_HEALTH_MONITOR_STACK_SIZE
 	int "Stack size for MCP health monitor thread"
