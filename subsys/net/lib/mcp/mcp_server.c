@@ -143,6 +143,12 @@ struct mcp_server_ctx {
 /*******************************************************************************
  * Variables
  ******************************************************************************/
+#if defined(CONFIG_MCP_ALLOC_SLAB)
+BUILD_ASSERT(sizeof(struct mcp_result_tools_call) <= CONFIG_MCP_MAX_MESSAGE_SIZE,
+	     "a tools/call result must fit a block of the large slab: lower "
+	     "CONFIG_MCP_TOOL_RESULT_MAX_LEN or raise CONFIG_MCP_MAX_MESSAGE_SIZE");
+#endif
+
 static struct mcp_server_ctx mcp_servers[CONFIG_MCP_SERVER_COUNT];
 
 K_THREAD_STACK_ARRAY_DEFINE(mcp_request_worker_stacks,
