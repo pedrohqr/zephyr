@@ -3872,7 +3872,7 @@ static struct net_in6_addr *net_if_ipv6_get_best_match(struct net_if *iface,
 			continue;
 		}
 
-		if (vpn_subnet_only && IS_ENABLED(CONFIG_NET_VPN)) {
+		if (IS_ENABLED(CONFIG_NET_VPN) && vpn_subnet_only) {
 			/* An address of a VPN interface is used only for destinations in
 			 * its own subnet. Without this, the longest prefix match can pick
 			 * the tunnel address for a destination on another network, the
@@ -4771,7 +4771,7 @@ static struct net_in_addr *net_if_ipv4_get_best_match(struct net_if *iface,
 			continue;
 		}
 
-		if (vpn_subnet_only && IS_ENABLED(CONFIG_NET_VPN)) {
+		if (IS_ENABLED(CONFIG_NET_VPN) && vpn_subnet_only) {
 			/* An address of a VPN interface is used only for destinations in
 			 * its own subnet. Without this, the longest prefix match can pick
 			 * the tunnel address for a destination on another network, the
