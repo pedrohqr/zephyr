@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <math.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/ztest.h>
 
@@ -239,6 +241,19 @@ ZTEST(net_content_plain_text, test_put_float)
 		offset += strlen(expected_payload[i]);
 		zassert_equal(test_out.out_cpkt->offset, offset,
 			      "Invalid packet offset");
+	}
+}
+
+ZTEST(net_content_plain_text, test_put_float_not_printable)
+{
+	int ret;
+	int i;
+	double value[] = { (double)NAN, (double)INFINITY, -(double)INFINITY, 1e19, -1e19 };
+
+	for (i = 0; i < ARRAY_SIZE(value); i++) {
+		ret = plain_text_writer.put_float(&test_out, &test_path, &value[i]);
+		zassert_equal(ret, -EINVAL, "Invalid error code returned");
+		zassert_equal(test_out.out_cpkt->offset, 0, "Invalid packet offset");
 	}
 }
 
